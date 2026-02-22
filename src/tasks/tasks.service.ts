@@ -176,7 +176,7 @@ export class TasksService implements OnApplicationBootstrap {
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
       this.logger.log(
-        `crawlDojiHungThinhVuong9999GoldRingPrice took ${durationMs.toFixed(2)}ms`,
+        `Crawl Doji Hung Thinh Vuong 9999 Gold Ring Price took ${durationMs.toFixed(2)}ms`,
       );
     } catch (error) {
       if (error instanceof Error) {
@@ -242,7 +242,7 @@ export class TasksService implements OnApplicationBootstrap {
       await this.updateE1VFVN30Cell(rawStockPrice);
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
-      this.logger.log(`crawlE1VFVN30Price took ${durationMs.toFixed(2)}ms`);
+      this.logger.log(`Crawl E1VFVN30 Price took ${durationMs.toFixed(2)}ms`);
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
@@ -254,46 +254,69 @@ export class TasksService implements OnApplicationBootstrap {
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async crawlPAXGPrice() {
+    let browser: Browser | null = null;
     try {
       const start = process.hrtime.bigint();
-      this.logger.log('Fetching PAXG price via Coingecko API...');
+      this.logger.log('Launching crawler for Binance PAXG...');
 
-      // 1. Generate UNIX timestamps for the last 7 days to today
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
 
-      // 2. Using the DNSE (Entrade) public chart API
-      const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=vnd`;
-
-      const response = await firstValueFrom(
-        this.httpService.get<CoingeckoResponse>(apiUrl),
+      const page = await browser.newPage();
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       );
-      if (!response) {
-        this.logger.error('Failed to crawl PAXGPrice, response is empty');
-        return;
+
+      await page.goto('https://www.binance.com/vi/price/pax-gold/VND', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
+      await page.waitForFunction(() => {
+        return Array.from(document.querySelectorAll('span')).some((el) =>
+          el.innerText.includes('VND'),
+        );
+      });
+      const priceText = await page.evaluate(() => {
+        const spans = Array.from(document.querySelectorAll('span'));
+
+        // Example text: "₫25,990.10 VND"
+        const priceSpan = spans.find(
+          (el) => /VND/.test(el.innerText) && /₫/.test(el.innerText),
+        );
+
+        if (!priceSpan) return null;
+
+        // Extract number
+        return priceSpan.innerText
+          .replace(/[₫,]/g, '')
+          .replace('VND', '')
+          .trim()
+          .split('=')[1]
+          .replaceAll('.', ',')
+          .trim();
+      });
+
+      if (priceText) {
+        this.logger.log(`Found PAXG Price string: ${priceText}`);
+
+        await this.updateUSDTCell(priceText);
+      } else {
+        this.logger.warn('Could not locate PAXG price on the page.');
       }
-
-      if (!response.data) {
-        this.logger.error('Failed to crawl PAXGPrice, response data is empty');
-        return;
-      }
-      if (!response.data['pax-gold'] || !response.data['pax-gold'].vnd) {
-        this.logger.error('Failed to crawl PAXGPrice, no  prices found');
-        return;
-      }
-
-      const vndPrice = response.data['pax-gold'].vnd;
-
-      this.logger.log(`Found PaxGold Price: ${vndPrice}`);
-
-      // Trigger the sheet update for column F3
-      await this.updatePaxGoldCell(vndPrice);
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
-      this.logger.log(`crawlPAXGPrice took ${durationMs.toFixed(2)}ms`);
+      this.logger.log(`Crawl PAXG Price took ${durationMs.toFixed(2)}ms`);
     } catch (error) {
       if (error instanceof Error) {
-        this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
+        this.logger.error(`Failed to crawl USDT: ${error.message}`);
       } else {
-        this.logger.error(`Failed to crawl E1VFVN30Price: ${String(error)}`);
+        this.logger.error(`Failed to crawl PAXG: ${String(error)}`);
+      }
+    } finally {
+      if (browser) {
+        await browser.close();
       }
     }
   }
@@ -353,7 +376,7 @@ export class TasksService implements OnApplicationBootstrap {
       }
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
-      this.logger.log(`crawlUSDTPrice took ${durationMs.toFixed(2)}ms`);
+      this.logger.log(`Crawl USDT Price took ${durationMs.toFixed(2)}ms`);
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(`Failed to crawl USDT: ${error.message}`);
