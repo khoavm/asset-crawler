@@ -87,7 +87,8 @@ export class TasksService implements OnApplicationBootstrap {
       const page = await browser.newPage();
 
       await page.goto('https://trangsuc.doji.vn/pages/bang-gia-vang', {
-        waitUntil: 'networkidle2',
+        waitUntil: 'domcontentloaded', // Stop waiting for heavy ads/images
+        timeout: 60000,
       });
 
       await page.waitForSelector('table', { timeout: 10000 });
@@ -155,7 +156,8 @@ export class TasksService implements OnApplicationBootstrap {
       await page.goto(
         'https://finance.vietstock.vn/E1VFVN30-quy-etf-dcvfmvn30.htm',
         {
-          waitUntil: 'networkidle2',
+          waitUntil: 'domcontentloaded', // Stop waiting for heavy ads/images
+          timeout: 60000,
         },
       );
 
