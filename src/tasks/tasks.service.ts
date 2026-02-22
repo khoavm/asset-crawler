@@ -41,6 +41,7 @@ export class TasksService implements OnApplicationBootstrap {
     await this.crawlPAXGPrice();
     await this.crawlDojiHungThinhVuong9999GoldRingPrice();
     await this.crawlE1VFVN30Price();
+    await this.crawlUSDTPrice();
 
     this.logger.log(
       'Initial crawl complete. Cron schedules will now take over.',
@@ -103,6 +104,17 @@ export class TasksService implements OnApplicationBootstrap {
     } catch (error) {
       this.logger.error(
         `updatePaxGoldCell Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async updateUSDTCell(price: number | string) {
+    try {
+      await this.updateSheetCell('Trang tính1', 'F4', price.toString());
+      this.logger.log(`Successfully update USDTCell price: ${price}`);
+    } catch (error) {
+      this.logger.error(
+        `updateUSDTCell Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -282,6 +294,75 @@ export class TasksService implements OnApplicationBootstrap {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
       } else {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${String(error)}`);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async crawlUSDTPrice() {
+    let browser: Browser | null = null;
+    try {
+      const start = process.hrtime.bigint();
+      this.logger.log('Launching crawler for Binance USDT...');
+
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
+
+      const page = await browser.newPage();
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      );
+
+      await page.goto('https://www.binance.com/vi/price/tether/VND', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
+      await page.waitForFunction(() => {
+        return Array.from(document.querySelectorAll('span')).some((el) =>
+          el.innerText.includes('VND'),
+        );
+      });
+      const priceText = await page.evaluate(() => {
+        const spans = Array.from(document.querySelectorAll('span'));
+
+        // Example text: "₫25,990.10 VND"
+        const priceSpan = spans.find(
+          (el) => /VND/.test(el.innerText) && /₫/.test(el.innerText),
+        );
+
+        if (!priceSpan) return null;
+
+        // Extract number
+        return priceSpan.innerText
+          .replace(/[₫,]/g, '')
+          .replace('VND', '')
+          .trim()
+          .split('=')[1]
+          .replaceAll('.', ',')
+          .trim();
+      });
+
+      if (priceText) {
+        this.logger.log(`Found USDT Price string: ${priceText}`);
+
+        await this.updateUSDTCell(priceText);
+      } else {
+        this.logger.warn('Could not locate USDT price on the page.');
+      }
+      const end = process.hrtime.bigint();
+      const durationMs = Number(end - start) / 1_000_000;
+      this.logger.log(`crawlUSDTPrice took ${durationMs.toFixed(2)}ms`);
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to crawl USDT: ${error.message}`);
+      } else {
+        this.logger.error(`Failed to crawl USDT: ${String(error)}`);
+      }
+    } finally {
+      if (browser) {
+        await browser.close();
       }
     }
   }
