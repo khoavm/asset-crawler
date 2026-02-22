@@ -93,6 +93,7 @@ export class TasksService implements OnApplicationBootstrap {
   async crawlDojiHungThinhVuong9999GoldRingPrice() {
     let browser: Browser | null = null;
     try {
+      const start = process.hrtime.bigint();
       this.logger.log('Launching crawler for DOJI...');
 
       browser = await puppeteer.launch({
@@ -142,6 +143,11 @@ export class TasksService implements OnApplicationBootstrap {
           'Could not locate the Hưng Thịnh Vượng row on the page.',
         );
       }
+      const end = process.hrtime.bigint();
+      const durationMs = Number(end - start) / 1_000_000;
+      this.logger.log(
+        `crawlDojiHungThinhVuong9999GoldRingPrice took ${durationMs.toFixed(2)}ms`,
+      );
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(`Failed to crawl DOJI: ${error.message}`);
@@ -155,9 +161,10 @@ export class TasksService implements OnApplicationBootstrap {
     }
   }
 
-  @Cron(CronExpression.EVERY_12_HOURS)
+  @Cron(CronExpression.EVERY_DAY_AT_4PM)
   async crawlE1VFVN30Price() {
     try {
+      const start = process.hrtime.bigint();
       this.logger.log('Fetching E1VFVN30 price via DNSE API...');
 
       // 1. Generate UNIX timestamps for the last 7 days to today
@@ -203,6 +210,9 @@ export class TasksService implements OnApplicationBootstrap {
 
       // Trigger the sheet update for column F3
       await this.updateE1VFVN30Cell(rawStockPrice);
+      const end = process.hrtime.bigint();
+      const durationMs = Number(end - start) / 1_000_000;
+      this.logger.log(`crawlE1VFVN30Price took ${durationMs.toFixed(2)}ms`);
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
