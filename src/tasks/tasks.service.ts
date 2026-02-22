@@ -157,7 +157,7 @@ export class TasksService implements OnApplicationBootstrap {
         'https://finance.vietstock.vn/E1VFVN30-quy-etf-dcvfmvn30.htm',
         {
           waitUntil: 'domcontentloaded', // Stop waiting for heavy ads/images
-          timeout: 60000,
+          timeout: 120000,
         },
       );
 
