@@ -162,7 +162,7 @@ export class TasksService implements OnApplicationBootstrap {
 
       // 1. Generate UNIX timestamps for the last 7 days to today
       const toTime = Math.floor(Date.now() / 1000);
-      const fromTime = toTime - 14 * 24 * 60 * 60;
+      const fromTime = toTime - 10 * 24 * 60 * 60;
 
       // 2. Using the DNSE (Entrade) public chart API
       const apiUrl = `https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?resolution=1D&symbol=E1VFVN30&from=${fromTime}&to=${toTime}`;
