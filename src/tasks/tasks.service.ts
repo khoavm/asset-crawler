@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import puppeteer, { Browser } from 'puppeteer';
 import { google } from 'googleapis';
@@ -6,6 +11,7 @@ import { google } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
+import { browser } from 'globals';
 
 interface DnseResponse {
   s: string; // Status
@@ -18,13 +24,17 @@ interface DnseResponse {
 }
 
 @Injectable()
-export class TasksService implements OnApplicationBootstrap {
+export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(TasksService.name);
+  private browser: Browser | null = null;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
   ) {}
+  async onModuleDestroy() {
+    await this.browser?.close();
+  }
 
   async onApplicationBootstrap() {
     this.logger.log(
@@ -124,6 +134,21 @@ export class TasksService implements OnApplicationBootstrap {
         `updateUSDTCell Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  private async getBrowser(): Promise<Browser> {
+    if (!this.browser) {
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+        ],
+      });
+    }
+    return this.browser;
   }
 
   @Cron(CronExpression.EVERY_12_HOURS)
@@ -261,17 +286,11 @@ export class TasksService implements OnApplicationBootstrap {
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async crawlPAXGPrice() {
-    let browser: Browser | null = null;
+    const browser = await this.getBrowser();
+    const page = await browser.newPage();
     try {
       const start = process.hrtime.bigint();
       this.logger.log('Launching crawler for Binance PAXG...');
-
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-
-      const page = await browser.newPage();
       await page.setUserAgent(
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       );
@@ -322,25 +341,18 @@ export class TasksService implements OnApplicationBootstrap {
         this.logger.error(`Failed to crawl PAXG: ${String(error)}`);
       }
     } finally {
-      if (browser) {
-        await browser.close();
-      }
+      await page?.close();
     }
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async crawlUSDTPrice() {
-    let browser: Browser | null = null;
+    const browser = await this.getBrowser();
+    const page = await browser.newPage();
     try {
       const start = process.hrtime.bigint();
       this.logger.log('Launching crawler for Binance USDT...');
 
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-
-      const page = await browser.newPage();
       await page.setUserAgent(
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       );
@@ -391,25 +403,18 @@ export class TasksService implements OnApplicationBootstrap {
         this.logger.error(`Failed to crawl USDT: ${String(error)}`);
       }
     } finally {
-      if (browser) {
-        await browser.close();
-      }
+      await page?.close();
     }
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async crawlBTCPrice() {
-    let browser: Browser | null = null;
+    const browser = await this.getBrowser();
+    const page = await browser.newPage();
     try {
       const start = process.hrtime.bigint();
       this.logger.log('Launching crawler for Binance BTC...');
 
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-
-      const page = await browser.newPage();
       await page.setUserAgent(
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       );
@@ -460,9 +465,7 @@ export class TasksService implements OnApplicationBootstrap {
         this.logger.error(`Failed to crawl BTC: ${String(error)}`);
       }
     } finally {
-      if (browser) {
-        await browser.close();
-      }
+      await page?.close();
     }
   }
 }
