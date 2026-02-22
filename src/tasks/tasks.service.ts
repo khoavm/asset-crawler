@@ -17,6 +17,12 @@ interface DnseResponse {
   v: number[]; // Volume
 }
 
+interface CoingeckoResponse {
+  'pax-gold': {
+    vnd: number;
+  };
+}
+
 @Injectable()
 export class TasksService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TasksService.name);
@@ -32,6 +38,7 @@ export class TasksService implements OnApplicationBootstrap {
     );
 
     // Await them so they don't fight for system resources on startup
+    await this.crawlPAXGPrice();
     await this.crawlDojiHungThinhVuong9999GoldRingPrice();
     await this.crawlE1VFVN30Price();
 
@@ -81,10 +88,21 @@ export class TasksService implements OnApplicationBootstrap {
   private async updateE1VFVN30Cell(stockPrice: number) {
     try {
       await this.updateSheetCell('Trang tính1', 'F3', stockPrice.toString());
-      this.logger.log(`Successfully updateE1VFVN30Cell price: ${stockPrice}`);
+      this.logger.log(`Successfully update E1VFVN30Cell price: ${stockPrice}`);
     } catch (error) {
       this.logger.error(
         `updateE1VFVN30Cell Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async updatePaxGoldCell(stockPrice: number) {
+    try {
+      await this.updateSheetCell('Trang tính1', 'F5', stockPrice.toString());
+      this.logger.log(`Successfully update PAXGCell price: ${stockPrice}`);
+    } catch (error) {
+      this.logger.error(
+        `updatePaxGoldCell Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -213,6 +231,52 @@ export class TasksService implements OnApplicationBootstrap {
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
       this.logger.log(`crawlE1VFVN30Price took ${durationMs.toFixed(2)}ms`);
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
+      } else {
+        this.logger.error(`Failed to crawl E1VFVN30Price: ${String(error)}`);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async crawlPAXGPrice() {
+    try {
+      const start = process.hrtime.bigint();
+      this.logger.log('Fetching PAXG price via Coingecko API...');
+
+      // 1. Generate UNIX timestamps for the last 7 days to today
+
+      // 2. Using the DNSE (Entrade) public chart API
+      const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=vnd`;
+
+      const response = await firstValueFrom(
+        this.httpService.get<CoingeckoResponse>(apiUrl),
+      );
+      if (!response) {
+        this.logger.error('Failed to crawl PAXGPrice, response is empty');
+        return;
+      }
+
+      if (!response.data) {
+        this.logger.error('Failed to crawl PAXGPrice, response data is empty');
+        return;
+      }
+      if (!response.data['pax-gold'] || !response.data['pax-gold'].vnd) {
+        this.logger.error('Failed to crawl PAXGPrice, no  prices found');
+        return;
+      }
+
+      const vndPrice = response.data['pax-gold'].vnd;
+
+      this.logger.log(`Found PaxGold Price: ${vndPrice}`);
+
+      // Trigger the sheet update for column F3
+      await this.updatePaxGoldCell(vndPrice);
+      const end = process.hrtime.bigint();
+      const durationMs = Number(end - start) / 1_000_000;
+      this.logger.log(`crawlPAXGPrice took ${durationMs.toFixed(2)}ms`);
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
