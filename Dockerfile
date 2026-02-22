@@ -27,3 +27,4 @@ RUN npm run build
 
 # Start the compiled application
 CMD ["node", "dist/main"]
+EXPOSE 3000
