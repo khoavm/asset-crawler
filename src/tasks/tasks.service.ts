@@ -375,7 +375,7 @@ export class TasksService implements OnApplicationBootstrap {
       });
 
       if (priceText) {
-        this.logger.log(`Found USDT Price string: ${priceText}`);
+        this.logger.log(`Found USDT Price: ${priceText}`);
 
         await this.updateUSDTCell(priceText);
       } else {
