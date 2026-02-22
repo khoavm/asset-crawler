@@ -4,11 +4,27 @@ import puppeteer, { Browser } from 'puppeteer';
 import { google } from 'googleapis';
 
 import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
+import { HttpService } from '@nestjs/axios';
+
+interface DnseResponse {
+  s: string; // Status
+  c: number[]; // Close prices
+  h: number[]; // High prices
+  l: number[]; // Low prices
+  o: number[]; // Open prices
+  t: number[]; // Timestamps
+  v: number[]; // Volume
+}
+
 @Injectable()
 export class TasksService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TasksService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
+  ) {}
 
   async onApplicationBootstrap() {
     this.logger.log(
@@ -141,67 +157,57 @@ export class TasksService implements OnApplicationBootstrap {
 
   @Cron(CronExpression.EVERY_12_HOURS)
   async crawlE1VFVN30Price() {
-    let browser: Browser | null = null;
     try {
-      this.logger.log('Launching crawler for Vietstock (E1VFVN30)...');
+      this.logger.log('Fetching E1VFVN30 price via DNSE API...');
 
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
+      // 1. Generate UNIX timestamps for the last 7 days to today
+      const toTime = Math.floor(Date.now() / 1000);
+      const fromTime = toTime - 14 * 24 * 60 * 60;
 
-      const page = await browser.newPage();
+      // 2. Using the DNSE (Entrade) public chart API
+      const apiUrl = `https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?resolution=1D&symbol=E1VFVN30&from=${fromTime}&to=${toTime}`;
 
-      // Navigate to the Vietstock ETF page
-      await page.goto(
-        'https://finance.vietstock.vn/E1VFVN30-quy-etf-dcvfmvn30.htm',
-        {
-          waitUntil: 'domcontentloaded', // Stop waiting for heavy ads/images
-          timeout: 120000,
-        },
+      const response = await firstValueFrom(
+        this.httpService.get<DnseResponse>(apiUrl),
       );
-
-      // Wait for the main stock info section to load
-      await page.waitForSelector('#stockprice span.price', { timeout: 15000 });
-
-      const stockData = await page.evaluate(() => {
-        // Target the exact ID and class from your screenshot
-        const priceElement = document.querySelector(
-          '#stockprice span.price',
-        ) as HTMLElement;
-        let currentPriceString: string | null = null;
-
-        if (priceElement) {
-          // This will grab exactly "36,000" and ignore the arrow icon next to it
-          currentPriceString = priceElement.innerText.trim();
-        }
-
-        return { currentPriceString };
-      });
-
-      if (stockData.currentPriceString) {
-        // CLEANUP: Remove commas/dots so "36,000" becomes 36000
-        const rawStockPrice = parseInt(
-          stockData.currentPriceString.replace(/\D/g, ''),
-          10,
-        );
-
-        this.logger.log(`Found E1VFVN30 Price: ${rawStockPrice}`);
-
-        // Trigger the sheet update for column G
-        await this.updateE1VFVN30Cell(rawStockPrice);
-      } else {
-        this.logger.warn('Could not locate the ETF price on Vietstock.');
+      if (!response) {
+        this.logger.error('Failed to crawl E1VFVN30Price, response is empty');
+        return;
       }
+
+      if (!response.data) {
+        this.logger.error(
+          'Failed to crawl E1VFVN30Price, response data is empty',
+        );
+        return;
+      }
+      if (!response.data.c || response.data.c.length === 0) {
+        this.logger.error(
+          'Failed to crawl E1VFVN30Price, no close prices found',
+        );
+        return;
+      }
+
+      const closePrices = response.data.c;
+
+      // Grab the very last closing price in the array (the most current one)
+      let rawStockPrice = closePrices[closePrices.length - 1];
+
+      // Safety check: Some APIs return 36 instead of 36000.
+      // If it's the smaller format, we multiply by 1000 to match your Google Sheet.
+      if (rawStockPrice < 1000) {
+        rawStockPrice = Math.round(rawStockPrice * 1000);
+      }
+
+      this.logger.log(`Found E1VFVN30 Price: ${rawStockPrice}`);
+
+      // Trigger the sheet update for column F3
+      await this.updateE1VFVN30Cell(rawStockPrice);
     } catch (error) {
       if (error instanceof Error) {
-        this.logger.error(`Failed to crawl Vietstock: ${error.message}`);
+        this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
       } else {
-        this.logger.error(`Failed to crawl Vietstock: ${String(error)}`);
-      }
-    } finally {
-      if (browser) {
-        await browser.close();
+        this.logger.error(`Failed to crawl E1VFVN30Price: ${String(error)}`);
       }
     }
   }

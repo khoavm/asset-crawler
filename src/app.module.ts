@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { TasksService } from './tasks/tasks.service';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { ConfigModule } from '@nestjs/config';
       isGlobal: true, // Makes the env variables available everywhere in your app
     }),
     ScheduleModule.forRoot(),
+    HttpModule,
   ],
   controllers: [AppController],
   providers: [AppService, TasksService],
