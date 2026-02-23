@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { browser } from 'globals';
+import replaceProperty = jest.replaceProperty;
 
 interface DnseResponse {
   s: string; // Status
@@ -21,6 +22,11 @@ interface DnseResponse {
   o: number[]; // Open prices
   t: number[]; // Timestamps
   v: number[]; // Volume
+}
+
+interface BinanceResponse {
+  symbol: string;
+  price: string;
 }
 
 @Injectable()
@@ -45,9 +51,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
 
     await this.crawlDojiHungThinhVuong9999GoldRingPrice();
     await this.crawlE1VFVN30Price();
-    await this.crawlUSDTPrice();
-    await this.crawlPAXGPrice();
-    await this.crawlBTCPrice();
+    await this.crawlBinancePrice();
 
     this.logger.log(
       'Initial crawl complete. Cron schedules will now take over.',
@@ -67,7 +71,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
         range: `${sheet}!${cell}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: {
-          values: [[value]],
+          values: [[value.replaceAll('.', ',').trim()]],
         },
       });
 
@@ -151,7 +155,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
     return this.browser;
   }
 
-  @Cron(CronExpression.EVERY_12_HOURS)
+  @Cron(CronExpression.EVERY_3_HOURS)
   async crawlDojiHungThinhVuong9999GoldRingPrice() {
     let browser: Browser | null = null;
     try {
@@ -196,6 +200,9 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
       });
 
       if (goldData.buyPrice) {
+        goldData.buyPrice = goldData.buyPrice
+          .replace(/,/g, '')
+          .replaceAll('.', '');
         this.logger.log(`Found Buy Price: ${goldData.buyPrice}`);
 
         // --- NEW: Trigger the sheet update ---
@@ -284,48 +291,51 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
-  async crawlPAXGPrice() {
-    const browser = await this.getBrowser();
-    const page = await browser.newPage();
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async crawlBinancePrice() {
+    try {
+      const usdtToVndPrice = await this.crawlUSDTPrice();
+      if (!usdtToVndPrice) {
+        this.logger.error(
+          'Could not crawl USDT price because VND price is undefined, skipping Binance crawl.',
+        );
+        return;
+      }
+      await this.crawlPAXGPrice(usdtToVndPrice);
+      await this.crawlBTCPrice(usdtToVndPrice);
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to crawl Binance: ${error.message}`);
+      } else {
+        this.logger.error(`Failed to crawl Binance: ${String(error)}`);
+      }
+    }
+  }
+
+  async crawlPAXGPrice(vndPrice: number) {
     try {
       const start = process.hrtime.bigint();
       this.logger.log('Launching crawler for Binance PAXG...');
-      await page.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      const apiUrl = `https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT`;
+
+      const response = await firstValueFrom(
+        this.httpService.get<BinanceResponse>(apiUrl),
       );
+      if (!response) {
+        this.logger.error('Failed to crawl Binance PAXG, response is empty');
+        return;
+      }
 
-      await page.goto('https://www.binance.com/vi/price/pax-gold/VND', {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000,
-      });
-      await page.waitForFunction(() => {
-        return Array.from(document.querySelectorAll('span')).some((el) =>
-          el.innerText.includes('VND'),
+      if (!response.data) {
+        this.logger.error(
+          'Failed to crawl Binance PAXG, response data is empty',
         );
-      });
-      const priceText = await page.evaluate(() => {
-        const spans = Array.from(document.querySelectorAll('span'));
+        return;
+      }
 
-        // Example text: "₫25,990.10 VND"
-        const priceSpan = spans.find(
-          (el) => /VND/.test(el.innerText) && /₫/.test(el.innerText),
-        );
-
-        if (!priceSpan) return null;
-
-        // Extract number
-        return priceSpan.innerText
-          .replace(/[₫,]/g, '')
-          .replace('VND', '')
-          .trim()
-          .split('=')[1]
-          .replaceAll('.', ',')
-          .trim();
-      });
-
+      const priceText = Number(response.data.price) * vndPrice;
       if (priceText) {
-        this.logger.log(`Found PAXG Price string: ${priceText}`);
+        this.logger.log(`Found PAXG Price : ${priceText}`);
 
         await this.updatePaxGoldCell(priceText);
       } else {
@@ -336,16 +346,13 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
       this.logger.log(`Crawl PAXG Price took ${durationMs.toFixed(2)}ms`);
     } catch (error) {
       if (error instanceof Error) {
-        this.logger.error(`Failed to crawl USDT: ${error.message}`);
+        this.logger.error(`Failed to crawl PAXG: ${error.message}`);
       } else {
         this.logger.error(`Failed to crawl PAXG: ${String(error)}`);
       }
-    } finally {
-      await page?.close();
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
   async crawlUSDTPrice() {
     const browser = await this.getBrowser();
     const page = await browser.newPage();
@@ -377,13 +384,14 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!priceSpan) return null;
 
         // Extract number
-        return priceSpan.innerText
-          .replace(/[₫,]/g, '')
-          .replace('VND', '')
-          .trim()
-          .split('=')[1]
-          .replaceAll('.', ',')
-          .trim();
+        return Number(
+          priceSpan.innerText
+            .replace(/[₫,]/g, '')
+            .replace('VND', '')
+            .trim()
+            .split('=')[1]
+            .trim(),
+        );
       });
 
       if (priceText) {
@@ -396,6 +404,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
       this.logger.log(`Crawl USDT Price took ${durationMs.toFixed(2)}ms`);
+      return priceText;
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(`Failed to crawl USDT: ${error.message}`);
@@ -407,49 +416,31 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
-  async crawlBTCPrice() {
-    const browser = await this.getBrowser();
-    const page = await browser.newPage();
+  async crawlBTCPrice(vndPrice: number) {
     try {
       const start = process.hrtime.bigint();
       this.logger.log('Launching crawler for Binance BTC...');
+      const apiUrl = `https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT`;
 
-      await page.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      const response = await firstValueFrom(
+        this.httpService.get<BinanceResponse>(apiUrl),
       );
+      if (!response) {
+        this.logger.error('Failed to crawl Binance BTC, response is empty');
+        return;
+      }
 
-      await page.goto('https://www.binance.com/vi/price/bitcoin/VND', {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000,
-      });
-      await page.waitForFunction(() => {
-        return Array.from(document.querySelectorAll('span')).some((el) =>
-          el.innerText.includes('VND'),
+      if (!response.data) {
+        this.logger.error(
+          'Failed to crawl Binance BTC, response data is empty',
         );
-      });
-      const priceText = await page.evaluate(() => {
-        const spans = Array.from(document.querySelectorAll('span'));
+        return;
+      }
 
-        // Example text: "₫25,990.10 VND"
-        const priceSpan = spans.find(
-          (el) => /VND/.test(el.innerText) && /₫/.test(el.innerText),
-        );
-
-        if (!priceSpan) return null;
-
-        // Extract number
-        return priceSpan.innerText
-          .replace(/[₫,]/g, '')
-          .replace('VND', '')
-          .trim()
-          .split('=')[1]
-          .replaceAll('.', ',')
-          .trim();
-      });
+      const priceText = Number(response.data.price) * vndPrice;
 
       if (priceText) {
-        this.logger.log(`Found BTC Price string: ${priceText}`);
+        this.logger.log(`Found BTC Price : ${priceText}`);
 
         await this.updateBTCCell(priceText);
       } else {
@@ -464,8 +455,29 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
       } else {
         this.logger.error(`Failed to crawl BTC: ${String(error)}`);
       }
-    } finally {
-      await page?.close();
+    }
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async checkHealth() {
+    try {
+      this.logger.log('Checking health...');
+      const response = await firstValueFrom(
+        this.httpService.get<string>('https://asset-crawler.onrender.com/ping'),
+      );
+      if (!response) {
+        throw new Error('response is empty');
+      }
+      if (!response.data) {
+        throw new Error('response data is empty');
+      }
+      this.logger.log(`Health check successful. Response: ${response.data}`);
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to check health: ${error.message}`);
+      } else {
+        this.logger.error(`Failed to check health: ${String(error)}`);
+      }
     }
   }
 }
