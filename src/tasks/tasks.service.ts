@@ -413,6 +413,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
       }
     } finally {
       await page?.close();
+      await browser?.close();
     }
   }
 
