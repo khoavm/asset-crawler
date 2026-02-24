@@ -85,7 +85,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
   // --- NEW: Helper method to update the Google Sheet ---
   private async updateGoldCell(buyPrice: string | number) {
     try {
-      await this.updateSheetCell('Trang tính1', 'F2', buyPrice.toString());
+      await this.updateSheetCell('Detail', 'E2', buyPrice.toString());
       this.logger.log(`Successfully updateGoldCell price: ${buyPrice}`);
     } catch (error) {
       if (error instanceof Error) {
@@ -98,7 +98,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async updateE1VFVN30Cell(stockPrice: number | string) {
     try {
-      await this.updateSheetCell('Trang tính1', 'F3', stockPrice.toString());
+      await this.updateSheetCell('Detail', 'E18', stockPrice.toString());
       this.logger.log(`Successfully update E1VFVN30Cell price: ${stockPrice}`);
     } catch (error) {
       this.logger.error(
@@ -107,9 +107,20 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
+  private async updateUSDTCell(price: number | string) {
+    try {
+      await this.updateSheetCell('Detail', 'C9', price.toString());
+      this.logger.log(`Successfully update USDTCell price: ${price}`);
+    } catch (error) {
+      this.logger.error(
+        `updateUSDTCell Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   private async updatePaxGoldCell(stockPrice: number | string) {
     try {
-      await this.updateSheetCell('Trang tính1', 'F5', stockPrice.toString());
+      await this.updateSheetCell('Detail', 'C10', stockPrice.toString());
       this.logger.log(`Successfully update PAXGCell price: ${stockPrice}`);
     } catch (error) {
       this.logger.error(
@@ -120,22 +131,11 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async updateBTCCell(stockPrice: number | string) {
     try {
-      await this.updateSheetCell('Trang tính1', 'F6', stockPrice.toString());
+      await this.updateSheetCell('Detail', 'C11', stockPrice.toString());
       this.logger.log(`Successfully update BTCCell price: ${stockPrice}`);
     } catch (error) {
       this.logger.error(
         `updateBTCCell Error: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  private async updateUSDTCell(price: number | string) {
-    try {
-      await this.updateSheetCell('Trang tính1', 'F4', price.toString());
-      this.logger.log(`Successfully update USDTCell price: ${price}`);
-    } catch (error) {
-      this.logger.error(
-        `updateUSDTCell Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
