@@ -141,7 +141,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private async getBrowser(): Promise<Browser> {
-    if (!this.browser) {
+    try {
       this.browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -151,8 +151,15 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
           '--disable-gpu',
         ],
       });
+      return this.browser;
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to getBrowser: ${error.message}`);
+      } else {
+        this.logger.error(`Failed to getBrowser: ${String(error)}`);
+      }
+      throw error;
     }
-    return this.browser;
   }
 
   @Cron(CronExpression.EVERY_3_HOURS)
