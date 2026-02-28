@@ -176,29 +176,51 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
 
       const page = await browser.newPage();
 
-      await page.goto('https://trangsuc.doji.vn/pages/bang-gia-vang', {
-        waitUntil: 'domcontentloaded', // Stop waiting for heavy ads/images
+      await page.goto('https://giavang.org/trong-nuoc/doji/', {
+        waitUntil: 'domcontentloaded',
         timeout: 60000,
       });
 
-      await page.waitForSelector('table', { timeout: 10000 });
+      // 1. Wait specifically for the gold-price-box to render
+      await page
+        .waitForSelector('.gold-price-box h2', { timeout: 60000 })
+        .catch(() => {
+          this.logger.warn('Timeout waiting for .gold-price-box to appear.');
+        });
 
+      // 2. Optimized DOM evaluation
       const goldData = await page.evaluate(() => {
-        const rows = document.querySelectorAll('tr');
         let buyPrice: string | null = null;
 
-        for (const row of Array.from(rows)) {
-          const text = row.innerText;
+        // Target only the headers instead of every element on the page
+        const headers = document.querySelectorAll('.gold-price-box h2');
 
-          if (
-            text.includes('Hưng Thịnh Vượng') ||
-            text.includes('Nhẫn Tròn 9999')
-          ) {
-            const cells = row.querySelectorAll('td');
-            if (cells.length >= 3) {
-              // We only extract the Buy price based on your request
-              buyPrice = cells[1].innerText.trim();
-              break;
+        for (const h2 of Array.from(headers)) {
+          // Find the specific section for Gold Rings
+          if (h2.textContent?.includes('Giá vàng Nhẫn')) {
+            // The screenshot shows the price row is the immediate next sibling
+            const priceRow = h2.nextElementSibling;
+            if (!priceRow || !priceRow.classList.contains('row')) continue;
+
+            // Find the "Mua vào" label inside this specific row
+            const labels = priceRow.querySelectorAll('.gold-price-label');
+            for (const label of Array.from(labels)) {
+              if (label.textContent?.toUpperCase().includes('MUA VÀO')) {
+                // The actual price is in the next span with class 'gold-price'
+                const priceElement = label.nextElementSibling;
+                if (
+                  priceElement &&
+                  priceElement.classList.contains('gold-price')
+                ) {
+                  // Extract just the number (e.g., from "183.800 ")
+                  const text = priceElement.textContent || '';
+                  const match = text.match(/([\d.,]+)/);
+                  if (match) {
+                    buyPrice = match[1];
+                    return { buyPrice };
+                  }
+                }
+              }
             }
           }
         }
@@ -207,18 +229,21 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
       });
 
       if (goldData.buyPrice) {
+        // Clean the string (e.g., "183.800" -> "183800")
         goldData.buyPrice = goldData.buyPrice
           .replace(/,/g, '')
           .replaceAll('.', '');
+        goldData.buyPrice += '00';
         this.logger.log(`Found Buy Price: ${goldData.buyPrice}`);
 
-        // --- NEW: Trigger the sheet update ---
+        // Trigger the sheet update
         await this.updateGoldCell(goldData.buyPrice);
       } else {
         this.logger.warn(
-          'Could not locate the Hưng Thịnh Vượng row on the page.',
+          'Could not locate the Giá vàng Nhẫn or MUA VÀO value on the page.',
         );
       }
+
       const end = process.hrtime.bigint();
       const durationMs = Number(end - start) / 1_000_000;
       this.logger.log(
