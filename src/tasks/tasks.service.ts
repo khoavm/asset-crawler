@@ -51,6 +51,7 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
 
     await this.crawlDojiHungThinhVuong9999GoldRingPrice();
     await this.crawlE1VFVN30Price();
+    await this.crawlVCBPrice();
     await this.crawlBinancePrice();
 
     this.logger.log(
@@ -103,6 +104,17 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
     } catch (error) {
       this.logger.error(
         `updateE1VFVN30Cell Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async updateVCBCell(stockPrice: number | string) {
+    try {
+      await this.updateSheetCell('Detail', 'E19', stockPrice.toString());
+      this.logger.log(`Successfully update VCBCell price: ${stockPrice}`);
+    } catch (error) {
+      this.logger.error(
+        `updateVCBCell Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -319,6 +331,63 @@ export class TasksService implements OnApplicationBootstrap, OnModuleDestroy {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${error.message}`);
       } else {
         this.logger.error(`Failed to crawl E1VFVN30Price: ${String(error)}`);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_4PM)
+  async crawlVCBPrice() {
+    try {
+      const start = process.hrtime.bigint();
+      this.logger.log('Fetching VCB price via DNSE API...');
+
+      // 1. Generate UNIX timestamps for the last 7 days to today
+      const toTime = Math.floor(Date.now() / 1000);
+      const fromTime = toTime - 10 * 24 * 60 * 60;
+
+      // 2. Using the DNSE (Entrade) public chart API
+      const apiUrl = `https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?resolution=1D&symbol=VCB&from=${fromTime}&to=${toTime}`;
+
+      const response = await firstValueFrom(
+        this.httpService.get<DnseResponse>(apiUrl),
+      );
+      if (!response) {
+        this.logger.error('Failed to crawlVCBPrice, response is empty');
+        return;
+      }
+
+      if (!response.data) {
+        this.logger.error('Failed to crawlVCBPrice, response data is empty');
+        return;
+      }
+      if (!response.data.c || response.data.c.length === 0) {
+        this.logger.error('Failed to crawlVCBPrice, no close prices found');
+        return;
+      }
+
+      const closePrices = response.data.c;
+
+      // Grab the very last closing price in the array (the most current one)
+      let rawStockPrice = closePrices[closePrices.length - 1];
+
+      // Safety check: Some APIs return 36 instead of 36000.
+      // If it's the smaller format, we multiply by 1000 to match your Google Sheet.
+      if (rawStockPrice < 1000) {
+        rawStockPrice = Math.round(rawStockPrice * 1000);
+      }
+
+      this.logger.log(`Found VCB Price: ${rawStockPrice}`);
+
+      // Trigger the sheet update for column F3
+      await this.updateVCBCell(rawStockPrice);
+      const end = process.hrtime.bigint();
+      const durationMs = Number(end - start) / 1_000_000;
+      this.logger.log(`Crawl VCB Price took ${durationMs.toFixed(2)}ms`);
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to crawl VCB Price: ${error.message}`);
+      } else {
+        this.logger.error(`Failed to crawl VCB Price: ${String(error)}`);
       }
     }
   }
